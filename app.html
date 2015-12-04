@@ -2,75 +2,70 @@
 <link href="../angularjs-peoplepicker/Styles/bootstrap.css" rel="stylesheet" />
 <link href="../angularjs-peoplepicker/Styles/app.css" rel="stylesheet" />
 <!-- There's not much to the HTML file. A div that references my AngularJS controller -->
-<div id="ng-app" data-ng-app="app" data-ng-cloak >	
-	<div id="strk" name="strk" data-ng-form="strk" data-ng-cloak>
-        <div class="container" id="sr-header" data-ng-controller="appCtrlr as vm" data-ng-cloak>        
-			<div class="row">
-				<div class="col-sm-8">
-					<h1 class="srTitle">SharePoint Client-side People Picker Control</h1>
-				</div>
-			</div>
-			<div class="row">
+<div id="ng-app" data-ng-app="app" data-ng-cloak>
+    <div id="strk" name="strk" data-ng-form="strk" data-ng-cloak>
+        <div class="container" id="sr-header" data-ng-controller="appCtrlr as vm" data-ng-cloak>
+            <div class="row">
+                <div class="col-sm-8">
+                    <h1 class="srTitle">SharePoint Client-side People Picker Control</h1>
+                </div>
+            </div>
+            <div class="row">
                 <div class="col-sm-2">
                     <span>
-                            Single User:
-					</span>
+                        Single User:
+                    </span>
                 </div>
-				<div class="col-sm-6">
+                <div class="col-sm-6">
                     <div class="form-group">
                         <label class="sr-only" for="singlePeoplePicker"></label>
-                        <div ui-People ng-model="vm.data.su" pp-ready-to-load="{{vm.loadPeoplePickers}}" pp-is-multiuser="{{false}}" pp-width="220px" pp-account-type="User" id="peoplePickerDivAT"></div>
+                        <div data-ng-disabled="false" ui-people ng-model="vm.data.su" pp-is-multiuser="{{false}}" pp-width="220px" pp-account-type="User,DL,SecGroup,SPGroup" id="peoplePickerDivAT"></div>
                     </div>
                 </div>
             </div>
-			<div class="row">
+            <div class="row">
                 <div class="col-sm-2">
                     <span>
-                            Multiple User:
-					</span>
+                        Multiple User:
+                    </span>
                 </div>
-				<div class="col-sm-6">
+                <div class="col-sm-6">
                     <div class="form-group">
                         <label class="sr-only" for="multiPeoplePicker"></label>
-                        <div ui-People ng-model="vm.data.mu" pp-ready-to-load="{{vm.loadPeoplePickers}}" pp-is-multiuser="{{true}}" id="peoplePickerDivAP"></div>
+                        <div data-ng-disabled="false" ui-people ng-model="vm.data.mu" pp-is-multiuser="{{true}}" pp-width="220px" pp-account-type="User,DL,SecGroup,SPGroup" id="peoplePickerDivAP"></div>
                     </div>
                 </div>
-            </div>			
-			<div class="row" style="margin-bottom:5px;">
-				<div class="col-sm-2">
+            </div>
+            <div class="row" style="margin-bottom:5px;">
+                <div class="col-sm-2">
                     <span>
                         Singe User Value:
-					</span>
+                    </span>
                 </div>
-				<div class="col-sm-6">
+                <div class="col-sm-6">
                     <p>
-                        <span data-ng-repeat="r in vm.data.su track by $index">
+                        <span data-ng-bind-html="vm.getPresence(vm.data.su.Name, vm.data.su.Title)"></span>&nbsp;
+                    </p>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-sm-2">
+                    <span>
+                        Multiple User Values:
+                    </span>
+                </div>
+                <div class="col-sm-6">
+                    <p>
+                        <span data-ng-repeat="r in vm.data.mu.results track by $index">
                             <span data-ng-bind-html="vm.getPresence(r.Name, r.Title)"></span>&nbsp;
                         </span>
                     </p>
                 </div>
-            </div>			
-			<div class="row">
-				<div class="col-sm-2">
-                    <span>
-                        Multiple User Values:
-					</span>
-                </div>
-				<div class="col-sm-6">
-                    <p>
-						<span data-ng-repeat="r in vm.data.mu track by $index">
-							<span data-ng-bind-html="vm.getPresence(r.Name, r.Title)"></span>&nbsp;
-						</span>
-					</p>
-                </div>
-            </div>		
-		</div>		
-	</div>
+            </div>
+        </div>
+    </div>
 </div>
 
-<!-- Load the constant variables -->
-<script type="text/ecmascript" src="../angularjs-peoplepicker/config/config.constants.js"></script>
-<script type="text/ecmascript" src="../angularjs-peoplepicker/models/models.js"></script>
 <!-- Load third party scripts required by the people picker -->
 <script type="text/ecmascript" src="/_layouts/15/SP.UI.Controls.js"></script>
 <script type="text/ecmascript" src="/_layouts/15/clienttemplates.js"></script>
@@ -78,27 +73,14 @@
 <script type="text/ecmascript" src="/_layouts/15/clientpeoplepicker.js"></script>
 <script type="text/ecmascript" src="/_layouts/15/autofill.js"></script>
 <script type="text/ecmascript" src="/_layouts/15/sp.RequestExecutor.js"></script>
-<!-- AngularJS, Sanitize, resource -->
+<!-- AngularJS-->
 <script type="text/ecmascript" src="../angularjs-peoplepicker/scripts/angular.min.js"></script>
 <script type="text/ecmascript" src="../angularjs-peoplepicker/scripts/angular-sanitize.min.js"></script>
 <script type="text/ecmascript" src="../angularjs-peoplepicker/scripts/angular-resource.min.js"></script>
 <script type="text/ecmascript" src="../angularjs-peoplepicker/scripts/angular-route.min.js"></script>
-<script type="text/ecmascript" src="../angularjs-peoplepicker/scripts/ui-bootstrap.js"></script>
 <!-- All of this scripts are used to create the app. -->
 <script type="text/ecmascript" src="../angularjs-peoplepicker/app.js"></script>
-<script type="text/ecmascript" src="../angularjs-peoplepicker/config/config.js"></script>
 <!-- ****** The following script contains the people picker directive. ****** -->
 <script type="text/ecmascript" src="../angularjs-peoplepicker/config/config.peoplepicker.js"></script>
-<script type="text/ecmascript" src="../angularjs-peoplepicker/common/common.js"></script>
-<script type="text/ecmascript" src="../angularjs-peoplepicker/common/logging.js"></script>
+<!-- ****** The following script contains the controller. ****** -->
 <script type="text/ecmascript" src="../angularjs-peoplepicker/controllers/controllers.js"></script>
-
-
-
-
-
-
-
-
-
-

@@ -1,259 +1,388 @@
 ﻿(function () {
     angular.module('ui.People', [])
     .value('uiPeopleConfig', {})
-    .directive('uiPeople', ['uiPeopleConfig', '$q', '$resource', '$timeout', function (uiPeopleConfig, $q, $resource, $timeout) {
+    .directive('uiPeople', ['uiPeopleConfig', '$q', '$injector', '$resource', '$timeout', function (uiPeopleConfig, $q, $injector, $resource, $timeout) {
         uiPeopleConfig = uiPeopleConfig || {};
+        uiPeopleConfig.validatingUsers = 'uiPeopleConfig.validatingUsers';
+        uiPeopleConfig.validatedUsers = 'uiPeopleConfig.validatedUsers';
         var generatedIds = 0;
         return {
-            require: ['ngModel'],
+            require: 'ngModel',
             priority: 10,
+            template: '<div id="{{peoplePickerParent}}"><div id="{{peoplePickerId}}"></div></div><div class="ui-people-readonly" style="display:none" id="{{peoplePickerTextId}}" ><span data-ng-bind-html="users"></span></div>',
+            scope: true,
             link: function (scope, elm, attrs, ngModel) {
-               var userModel = null;
-               var peoplePickerInstance = elm[0];
-               var securityValidation = ''; 
-               var loading = true;
-               var dataLoaded = false;
-               var scriptsLoaded = false;
-               var currentWebUrl = '';
-               var clientCtx = null;
-               var isMultiValued = (attrs.ppIsMultiuser == true || attrs.ppIsMultiuser == 'true') ? true : false;	
-               var principalAccountType = (attrs.ppAccountType && attrs.ppAccountType.match(/^(?:user)|(?:dl)|(?:secgroup)|(?:spgroup)$/i)) ? attrs.ppAccountType : 'User,DL,SecGroup,SPGroup';
-               var pickerWidth = (attrs.ppWidth && attrs.ppWidth.match(/^[0-9][0-9]*px$/i)) ? attrs.ppWidth : '220px';
-               var updateView = function () {
-                       ngModel[0].$setViewValue(userModel);
-                       if (!scope.$root.$$phase) {
-                           scope.$apply();
-                       }
-                   };	
-               var getViewValue = function(){
-                  return ngModel[0].$modelValue;
-               }				
-               var models = {};				
-               models.userPickerSchema = function (accountType, multipleValues, width) {
-                  this.userPickerSchema = {};
-                  this.PrincipalAccountType = accountType ? accountType : 'User,DL,SecGroup,SPGroup';
-                  this.SearchPrincipalSource = 15;
-                  this.ResolvePrincipalSource = 15;
-                  this.AllowMultipleValues = multipleValues == true ? true : false;
-                  this.MaximumEntitySuggestions = 50;
-                  this.Width = width ? width : '220px';
-                  this.OnUserResolvedClientScript = null;
-               }				
-               models.userPickerUserSchema = function () {
-                  this.userPickerUserSchema = {};
-                  this.AutoFillDisplayText = null;
-                  this.AutoFillKey = null;
-                  this.AutoFillSubDisplayText = "";
-                  this.DisplayText = null;
-                  this.EntityType = "User";
-                  this.IsResolved = true;
-                  this.Key = null;
-                  this.ProviderDisplayName = "Tenant";
-                  this.ProviderName = "Tenant";
-                  this.Resolved = true;
-               }
-               models.ensureUser = function () {
-                  this.logonName = null;
-               }
-               
-               function init() {										
-                  waitForScriptsToLoad().then(function (data) {
-                     refreshSecurityValidation();
-                     scriptsLoaded = true;
-                     if(dataLoaded){
-                        initializePeoplePicker();
-                     }
-                  })["catch"](function (error) {
-                     //log error
-                  });					
-               };					
-               
-               scope.$watch(function(){return attrs.ppReadyToLoad}, function(value) {
-                 if(value == true || value == 'true'){
-                  dataLoaded = true;
-                  if(scriptsLoaded){
-                     initializePeoplePicker();
-                  }
-                 }
-               });
+                var rootScope = null;
+                if (!rootScope) {
+                    rootScope = $injector.get("$rootScope");
+                }
+                if (!attrs.id) {
+                    attrs.$set('id', 'uiPeople' + generatedIds++);
+                }
+                scope.users = "";
+                var securityValidation = '';
+                var loading = true;
+                var dataLoaded = false;
+                var scriptsLoaded = false;
+                var clientCtx = null;
+                var isMultiValued = attrs.ppIsMultiuser ? scope.$eval(attrs.ppIsMultiuser) : false;
+                var principalAccountType = (attrs.ppAccountType && attrs.ppAccountType.match(/^(?:user)|(?:dl)|(?:secgroup)|(?:spgroup)$/i)) ? attrs.ppAccountType : 'User,DL,SecGroup,SPGroup';
+                var pickerWidth = (attrs.ppWidth && attrs.ppWidth.match(/^[0-9][0-9]*px$/i)) ? attrs.ppWidth : '220px';
 
-               function initializePeoplePicker() {					
-                  userModel = getViewValue();
-                  if(!userModel){
-                     userModel = [];						
-                     updateView();
-                  }
-                  var schema = new models.userPickerSchema(principalAccountType, isMultiValued, pickerWidth);
-                  schema.OnUserResolvedClientScript = function (elementId, userKey) {
-                     var s = 'something';
-                     setUserIdFromPickerChoice(userKey);
-                  }
-                  var users = [];
-                  var userCollection = userModel;
-                  if (userCollection) {
-                     for (var i = 0; i < userCollection.length; i++) {
-                        var cu = userCollection[i];
-                        var user = getPeoplePickerUserObject(cu.Name, cu.Title);
-                        if (user) {
-                           users.push(user);
-                        }
-                     }
-                  }
-                  SPClientPeoplePicker_InitStandaloneControlWrapper(peoplePickerInstance.id, users, schema);
-                  loading = false;
-               }
-      
-               function setUserIdFromPickerChoice(userKeys) {
-                  //If the directive is loading users during initialisation, we don't need to call Ensure user or update the model (the users are coming from the model during init).  
-                  if(loading){return};
-                  //Get the current model value
-                  userModel = ngModel[0].$modelValue;										
-                  var updatedUserModel = [];
-                  var pendingUsers = [];
-                  //1. Remove all the entries out of the current array that aren't in the new array
-                  //2. For all the entries that are in the new array, but not in the old array, call ensure user.
-                  for(var i = 0; i < userKeys.length; i++){
-                     var currentEntity = userKeys[i];
-                     var currentEntityFoundInExistingModel = false;
-                     for(var b = 0; b < userModel.length; b++){
-                        var existingEntity = userModel[b];
-                        if(existingEntity.Name == currentEntity.Key){								
-                           //Found a matching user in the existing model.
-                           updatedUserModel.push({'Name':existingEntity.Name, 'Title':existingEntity.Title, 'Id':existingEntity.Id});
-                           currentEntityFoundInExistingModel = true;
-                           break;
-                        }
-                     }
-                     if(!currentEntityFoundInExistingModel){
-                        //the current picker entity was not found in the existing array. Add it to the pendingusers array
-                        //we'll call EnsureUser on all the users in this array, before added them to the model
-                        pendingUsers.push(currentEntity.Key);
-                     }
-                  }
-                  //clean up the old array and replace it with the new array
-                  delete userModel;
-                  userModel = updatedUserModel;
-                  
-                  //Now all we need to do, is call EnsureUser on any pending users, get the users SPUser.Id, and add the user to the userModel array. 
-                  if (pendingUsers.length > 0) {
-                     for (var i = 0; i < pendingUsers.length; i++) {
-                        //Call ensure user, and then get the user ID
-                        getUser(pendingUsers[i])
-                        .then(function (data) {
-                           if (data.Id && data.LoginName) {
-                              userModel.push({ 'Name': data.LoginName, 'Title': data.Title, 'Id': data.Id });
-                           }					    
-                        })
-                        ["catch"](function (error) {						    
-                           //log error
-                        });
-                     }						
-                  }
-                  //Finally, update the view with the model changes.
-                  updateView();					
-               }
-         
-               function getPeoplePickerUserObject(userName, displayName){
-                  if (userName && displayName) {
-                     var user = new models.userPickerUserSchema();
-                     user.AutoFillDisplayText = displayName;
-                     user.AutoFillKey = userName;
-                     user.DisplayText = displayName;
-                     user.Key = userName;
-                     return user;
-                  }
-                  return null;
-               }
-               
-               function refreshSecurityValidation() {
-                  var siteCtxInfoResource = $resource(currentWebUrl + '/_api/contextinfo', {}, {
-                     post: {
-                        method: 'POST',
-                        headers: {
-                           'Accept': 'application/json;odata=verbose',
-                           'Content-Type': 'application/json;odata=verbose'
-                        }
-                     }
-                  });
+                scope.isDisabled = attrs.ngDisabled ? scope.$eval(attrs.ngDisabled) : false;
+                scope.currentWebUrl = attrs.ppWebUrl ? scope.$eval(attrs.ppWebUrl) : _spPageContextInfo.webAbsoluteUrl;
+                scope.text = '';
+                scope.peoplePickerParent = ('peoplePickerParent_' + attrs.id);
+                scope.peoplePickerId = ('peoplePicker_' + attrs.id);
+                scope.peoplePickerTextId = ('text_' + attrs.id);
 
-                  siteCtxInfoResource.post({},
-                     function (data) {
-                        //callback success. Get digest timeout and value, and store it in the service
-                        var siteCtxInfo = data.d.GetContextWebInformation;
-                        var validationRefreshTimeout = siteCtxInfo.FormDigestTimeoutSeconds - 10;
-                        securityValidation = siteCtxInfo.FormDigestValue;
-                        //repeat the validation refresh in timeout
-                        $timeout(function () {
-                           refreshSecurityValidation();
-                        }, validationRefreshTimeout * 1000);
-                     },
-                     function (error) {
-                     });
-               }
-               
-               function getUserIdResource() {
-                  return $resource(currentWebUrl + '/_api/web/ensureuser',
-                     {}, {
-                        post: {
-                           method: 'POST',
-                           params: {
-                           },
-                           headers: {
-                              'Accept': 'application/json;odata=verbose',
-                              'Content-Type': 'application/json;odata=verbose;',
-                              'X-RequestDigest': securityValidation
+
+                var models = {};
+                models.pickerSchema = function (accountType, multipleValues, width) {
+                    this.pickerSchema = {};
+                    this.PrincipalAccountType = accountType ? accountType : 'User,DL,SecGroup,SPGroup';
+                    this.SearchPrincipalSource = 15;
+                    this.ResolvePrincipalSource = 15;
+                    this.AllowMultipleValues = multipleValues == true ? true : false;
+                    this.MaximumEntitySuggestions = 50;
+                    this.Width = width ? width : '220px';
+                    this.OnvalidatedUsersClientScript = null;
+                };
+                models.userSchema = function (userName, displayName, userId, isResolved, entityType) {
+                    this.AutoFillDisplayText = displayName ? displayName : null;
+                    this.AutoFillKey = userName ? userName : null;
+                    this.AutoFillSubDisplayText = "";
+                    this.DisplayText = displayName ? displayName : null;
+                    this.EntityType = entityType ? entityType : "User";
+                    this.IsResolved = isResolved === true ? true : false;
+                    this.Key = userName ? userName : null;;
+                    this.ProviderDisplayName = "Tenant";
+                    this.ProviderName = "Tenant";
+                    this.Resolved = true;
+                    this.userId = userId ? userId : null;
+                };
+                models.ensureUser = function (userName) {
+                    this.logonName = userName ? userName : null;
+                };
+                models.userCollection = function (multiUserPicker, webUrl) {
+                    this._pendingUsers = [];
+                    this._currentUsers = [];
+                    this._webUrl = webUrl ? webUrl : _spPageContextInfo.webAbsoluteUrl;
+                    this._multi = multiUserPicker === true ? true : false;
+                };
+                models.userCollection.prototype.updateFromViewValue = function (value, scope) {
+                    this.deleteCurrentUsers();
+                    var pickerId = scope.peoplePickerId + '_TopSpan';
+                    if (SPClientPeoplePicker.SPClientPeoplePickerDict.hasOwnProperty(pickerId) && !scope.isDisabled) {
+                        var currentUsers = SPClientPeoplePicker.SPClientPeoplePickerDict[pickerId].DeleteProcessedUser();
+                    }
+                    if (value && value.results instanceof Array) {
+                        for (var i = 0; i < value.results.length; i++) {
+                            var cu = value.results[i];
+                            if (cu.Name && cu.Title) {
+                                var user = new models.userSchema(cu.Name, cu.Title, cu.Id, true);
+                                this._currentUsers.push(user);
+                                if (SPClientPeoplePicker.SPClientPeoplePickerDict.hasOwnProperty(pickerId) && !scope.isDisabled) {
+                                    SPClientPeoplePicker.SPClientPeoplePickerDict[pickerId].AddResolvedUserToLocalCache(user);
+                                    SPClientPeoplePicker.SPClientPeoplePickerDict[pickerId].AddProcessedUser(user);
+                                }
+                            }
+                        }
+                        if (SPClientPeoplePicker.SPClientPeoplePickerDict.hasOwnProperty(pickerId)) {
+                            //SPClientPeoplePicker.SPClientPeoplePickerDict[pickerId].ResolveAllUsers(false);	
+							//This causes setUserIdFromPickerChoice to be called, which goes through validating users, and then updates the model
+							//Need to find an improved way of handling this.
+                        }
+                    }
+                    else if (value) {
+                        if (value.Name && value.Title) {
+                            var user = new models.userSchema(value.Name, value.Title, value.Id, true);
+                            this._currentUsers.push(user);
+                            if (SPClientPeoplePicker.SPClientPeoplePickerDict.hasOwnProperty(pickerId) && !scope.isDisabled) {
+                                SPClientPeoplePicker.SPClientPeoplePickerDict[pickerId].AddResolvedUserToLocalCache(user);
+                                SPClientPeoplePicker.SPClientPeoplePickerDict[pickerId].AddProcessedUser(user);
+                                //SPClientPeoplePicker.SPClientPeoplePickerDict[pickerId].ResolveAllUsers();	
+								//This causes setUserIdFromPickerChoice to be called, which goes through validating users, and then updates the model
+								//Need to find an improved way of handling this.								
+                            }
+                        }
+                    }
+
+                };
+                models.userCollection.prototype.updateFromPickerUserKeys = function (value) {
+                    this.deleteCurrentUsers();
+                    if (value && value instanceof Array) {
+                        for (var i = 0; i < value.length; i++) {
+                            var cu = value[i];
+                            if (cu.Key && (cu.AutoFillDisplayText || cu.DisplayText)) {
+                                var user = null;
+                                if (cu.EntityData && cu.EntityData.SPGroupID) {
+                                    user = new models.userSchema(cu.Key, (cu.AutoFillDisplayText || cu.DisplayText), cu.EntityData.SPGroupID, cu.Resolved, 'SPGroup');
+                                } else {
+                                    user = new models.userSchema(cu.Key, (cu.AutoFillDisplayText || cu.DisplayText), null, cu.Resolved);
+                                }
+                                this._currentUsers.push(user);
+                            }
+                        }
+                    }
+                };
+                models.userCollection.prototype.getViewValue = function () {
+                    if (this._multi === true) {
+                        var uc = {};
+                        uc.results = [];
+                        for (var i = 0; i < this._currentUsers.length; i++) {
+                            var u = this._currentUsers[i];
+                            uc.results.push({ Name: u.Key, Title: (u.AutoFillDisplayText || u.DisplayText), Id: u.userId })
+                        }
+                        return uc;
+                    } else {
+                        var u = this._currentUsers.length > 0 ? this._currentUsers[0] : null;
+                        return u === null ? null : { Name: u.Key, Title: (u.AutoFillDisplayText || u.DisplayText), Id: u.userId };
+                    }
+                };
+                models.userCollection.prototype.getUsersAsHashTable = function () {
+                    var h = {};
+                    for (var i = 0; i < this._currentUsers.length; i++) {
+                        var u = this._currentUsers[i];
+                        h[(u.Key)] = u.Key;
+                    }
+                    return h;
+                };
+                models.userCollection.prototype.getPendingUsers = function () {
+                    return this._pendingUsers;
+                };
+                models.userCollection.prototype.removePendingUser = function (index) {
+                    this._pendingUsers.splice(index, 1);
+                };
+                models.userCollection.prototype.removeCurrentUser = function (index) {
+                    this._currentUsers.splice(index, 1);
+                };
+                models.userCollection.prototype.deleteCurrentUsers = function () {
+                    this._currentUsers.length = 0;
+                };
+                models.userCollection.prototype.getUserIdResource = function () {
+                    return $resource(this._webUrl + '/_api/web/ensureuser',
+                       {}, {
+                           post: {
+                               method: 'POST',
+                               params: {
+                               },
+                               headers: {
+                                   'Accept': 'application/json;odata=verbose',
+                                   'Content-Type': 'application/json;odata=verbose;',
+                                   'X-RequestDigest': securityValidation
+                               }
                            }
+                       });
+                };
+                models.userCollection.prototype.resolveUsers = function () {
+                    var deferred = $q.defer();
+                    if (this._pendingUsers.length > 0) {
+                        for (var i = (this._pendingUsers.length - 1) ; i >= 0; i--) {
+                            var pu = this._pendingUsers[i];
+                            if (pu.EntityType === 'SPGroup') {
+                                $timeout(function () {
+                                    userModel._pendingUsers.pop();
+                                    pu.Resolved = true;
+                                    userModel._currentUsers.push(pu);
+                                    if (userModel._pendingUsers.length === 0) {
+                                        deferred.resolve();
+                                    }
+                                }, 500);
+                            } else {
+                                var spUserModel = new models.ensureUser(pu.Key);
+                                this.getUserIdResource().post(spUserModel, function (data) {
+                                    userModel._pendingUsers.pop();                                    
+                                    if (data && data.d && data.d.Id && data.d.LoginName) {
+                                        var user = new models.userSchema(data.d.LoginName, data.d.Title, data.d.Id, true);
+                                        userModel._currentUsers.push(user);
+                                    }
+                                    if (userModel._pendingUsers.length === 0) {
+                                        deferred.resolve();
+                                    }
+                                }, function (error) {
+                                    var message = 'Failed to ensure user. Exception: ' + error.statusText;
+                                    deferred.reject(message);
+                                });
+                            }
                         }
-                     });
-               }
+                    } else {
+                        $timeout(function () {
+                            deferred.resolve();
+                        }, 100);
+                    }
+                    return deferred.promise;
+                };
+                models.userCollection.prototype.renderUserWithPresence = function (userId, userTitle) {
+                    if (userId && userTitle) {
+                        return '<div class="ui-people-userlink"><span class="ms-noWrap"><span class="ms-spimn-presenceLink"><span class="ms-spimn-presenceWrapper ms-imnImg ms-spimn-imgSize-10x10"><img class="ms-spimn-img ms-spimn-presence-disconnected-10x10x32" src="' + this._webUrl + '/_layouts/15/images/spimn.png?rev=23"  alt="" /></span></span><span class="ms-noWrap ms-imnSpan"><span class="ms-spimn-presenceLink"><img class="ms-hide" src="' + this._webUrl + '/_layouts/15/images/blank.gif?rev=23"  alt="" /></span><a class="ms-subtleLink" onclick="GoToLinkOrDialogNewWindow(this);return false;" href="' + this._webUrl + '/_layouts/15/userdisp.aspx?ID=' + userId + '">' + userTitle + '</a></span></span></div>';
+                    }
+                    return '<div class="ui-people-userlink"><span class="ms-noWrap">' + userTitle + '</span></div>';
+                }
+                models.userCollection.prototype.renderUsersAsReadOnly = function (model) {
+                    var usersHtml = "";
+                    for (var i = 0; i < this._currentUsers.length; i++) {
+                        var u = this._currentUsers[i];
+                        usersHtml = usersHtml + this.renderUserWithPresence(u.userId, u.DisplayText);
+                    }
+                    return usersHtml;
+                }
 
-               function getUser(claimsUserName) {
-                  var spUserModel = new models.ensureUser();
-                  spUserModel.logonName = claimsUserName;
-                  var resource = getUserIdResource();
-                  var deferred = $q.defer();
+                var updateView = function () {
+                    ngModel.$setViewValue(userModel.getViewValue());
+                    if (!scope.$root.$$phase) {
+                        scope.$apply();
+                    }
+                };
+                var getViewValue = function () {
+                    return ngModel.$modelValue;
+                }
+                ngModel.$render = Function.createDelegate(scope, function () {
+                    scope.isDisabled = attrs.ngDisabled ? scope.$eval(attrs.ngDisabled) : false;
+                    userModel.updateFromViewValue(ngModel.$modelValue, scope);
+                    if (scope.isDisabled) {
+                        scope.users = userModel.renderUsersAsReadOnly();
+                    }
+                    toggleReadOrEditField(scope);
+                    return;
+                });
 
-                  resource.post(spUserModel, function (data) {
-                     //successful callback                
-                     deferred.resolve(data.d);
-                  }, function (error) {
-                     //error callback
-                     var message = 'data service error: ' + error.statusText;                
-                     deferred.reject(message);
-                  });
+                var userModel = new models.userCollection(isMultiValued);
 
-                  return deferred.promise;
-               }    
-               
-               function waitForScriptsToLoad() {
-                  var deferred = $q.defer();
-                  if (SP.ClientContext === undefined) {
-                     SP.SOD.executeFunc('sp.js', 'SP.ClientContext', function () {							
-                        clientCtx = SP.ClientContext.get_current();
-                        currentWebUrl = clientCtx.get_url();
-                        deferred.resolve(true);
-                     });
-                  } else {
-                     clientCtx = SP.ClientContext.get_current();
-                     currentWebUrl = clientCtx.get_url();
-                     deferred.resolve(true);
-                  }
-                  return deferred.promise;
-               }
-               
-               // generate an ID if not present
-               if (!attrs.id) {
-                 attrs.$set('id', 'uiPeople' + generatedIds++);
-               }
+                function init(scope) {
+                    ensureScriptsLoaded(scope).then(function (data) {
+                        refreshSecurityValidation();
+                        scriptsLoaded = true;
+                        initializePeoplePicker(scope);
+                    })["catch"](function (error) {
+                        //log error
+                    });
+                };
 
-               ngModel.$render = function () {                    
-                  if (peoplePickerInstance) {                        
-                     init();
-                     ngModel.$setPristine();
-                  }
-               };
-               
-               init();
+                function initializePeoplePicker(scope) {
+                    var schema = new models.pickerSchema(principalAccountType, isMultiValued, pickerWidth);
+                    schema.OnUserResolvedClientScript = setUserIdFromPickerChoice;
+                    SPClientPeoplePicker_InitStandaloneControlWrapper(scope.peoplePickerId, userModel._currentUsers, schema);
+                    //If you don't need to support IE8, then you can add the users while initialising the picker control, like this:
+                    //SPClientPeoplePicker_InitStandaloneControlWrapper(peoplePickerElementId, users, schema);
+                    //However, if you're using IE8, this doesn't work - I think it's to do with the Array prototype extension forEach
+                    //Here's the workaround - loop through the users and add them manually.
+                    //SPClientPeoplePicker_InitStandaloneControlWrapper(peoplePickerInstance.id, null, schema);
+                    //var peoplePicker = SPClientPeoplePicker.SPClientPeoplePickerDict[(scope.peoplePickerId + "_TopSpan")];
+                    //for (var i = 0; i < users.length; i++) {
+                    //	var u = users[i];
+                    //	peoplePicker.AddProcessedUser(u);
+                    //}	
+                    loading = false;
+                    if (scope.isDisabled) {
+                        scope.users = userModel.renderUsersAsReadOnly();
+                    }
+                    toggleReadOrEditField(scope);
+                }
+
+                function setUserIdFromPickerChoice(elementId, userKeys) {
+                    //If the directive is loading users during initialisation, we don't need to call Ensure user or update the model (the users are coming from the model during init).  
+                    if (loading) { return };
+                    rootScope.$broadcast(uiPeopleConfig.validatingUsers, { message: 'Validating users', value: userKeys, show: true });
+                    var newUserCollection = new models.userCollection(isMultiValued);
+                    newUserCollection.updateFromPickerUserKeys(userKeys);
+                    var newUserHashTable = newUserCollection.getUsersAsHashTable();
+                    var indexLength = userModel._currentUsers.length;
+                    //Remove users from the currentUsers array that aren't present in the userKeys
+                    for (var i = (indexLength - 1) ; i >= 0; i--) {
+                        var u = userModel._currentUsers[i];
+                        if (!(newUserHashTable[(u.Key)])) {
+                            userModel.removeCurrentUser(i);
+                        }
+                    }
+
+                    //Get all the new users in the userKeys array
+                    var currentUserHashTable = userModel.getUsersAsHashTable();
+                    indexLength = newUserCollection._currentUsers.length;
+                    for (var i = (indexLength - 1) ; i >= 0; i--) {
+                        var u = newUserCollection._currentUsers[i];
+                        if (!(currentUserHashTable[(u.Key)])) {
+                            //User not found in the existing currentUsers collection. Add them to the pending users collection.                            
+                            userModel._pendingUsers.push(u);
+                        }
+                    }
+
+                    var defer = $q.defer();
+                    userModel.resolveUsers().then(function (value) {
+                        updateView();
+                        rootScope.$broadcast(uiPeopleConfig.validatedUsers, { message: 'Validated users', value: userKeys, show: false });
+                        return defer.resolve(value);
+                    })["catch"](function (error) {
+                        rootScope.$broadcast(uiPeopleConfig.validatedUsers, { message: 'Failed to validated users', value: userKeys, show: false });
+                        defer.reject(error);
+                    });
+                    return defer.promise;
+                }
+
+                function refreshSecurityValidation() {
+                    var siteCtxInfoResource = $resource(scope.currentWebUrl + '/_api/contextinfo', {}, {
+                        post: {
+                            method: 'POST',
+                            headers: {
+                                'Accept': 'application/json;odata=verbose',
+                                'Content-Type': 'application/json;odata=verbose'
+                            }
+                        }
+                    });
+
+                    siteCtxInfoResource.post({},
+                       function (data) {
+                           //callback success. Get digest timeout and value, and store it in the service
+                           var siteCtxInfo = data.d.GetContextWebInformation;
+                           var validationRefreshTimeout = siteCtxInfo.FormDigestTimeoutSeconds - 10;
+                           securityValidation = siteCtxInfo.FormDigestValue;
+                           //repeat the validation refresh in timeout
+                           $timeout(function () {
+                               refreshSecurityValidation();
+                           }, validationRefreshTimeout * 1000);
+                       },
+                       function (error) {
+                       });
+                }
+
+                function ensureScriptsLoaded(scope) {
+                    var deferred = $q.defer();
+                    if (SP.ClientContext === undefined) {
+                        SP.SOD.executeFunc('sp.js', 'SP.ClientContext', function () {
+                            clientCtx = SP.ClientContext.get_current();
+                            if (!scope.currentWebUrl) {
+                                scope.currentWebUrl = clientCtx.get_url();
+                            }
+                            deferred.resolve(true);
+                        });
+                    } else {
+                        $timeout(function () {
+                            clientCtx = SP.ClientContext.get_current();
+                            if (!scope.currentWebUrl) {
+                                scope.currentWebUrl = clientCtx.get_url();
+                            }
+                            deferred.resolve(true);
+                        }, 250);
+                    }
+                    return deferred.promise;
+                }
+
+                function toggleReadOrEditField(scope) {
+                    var p = document.getElementById(scope.peoplePickerParent);
+                    var e = document.getElementById(scope.peoplePickerTextId);
+                    if (p && e) {
+                        if (scope.isDisabled) {                            			
+                            e.style.display = 'block';
+                            p.style.display = 'none';
+                        } else {
+                            e.innerHTML = '';
+                            e.style.display = 'none';
+                            p.style.display = 'block';
+                        }
+                    }
+                }
+
+                init(scope);
             }
         };
     }]);
