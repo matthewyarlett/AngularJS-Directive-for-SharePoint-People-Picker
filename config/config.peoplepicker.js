@@ -21,8 +21,7 @@
                 }
                 scope.users = "";
                 var securityValidation = '';
-                var loading = true;
-                var dataLoaded = false;
+                var loading = true;                
                 var scriptsLoaded = false;
                 var clientCtx = null;
                 var isMultiValued = attrs.ppIsMultiuser ? scope.$eval(attrs.ppIsMultiuser) : false;
@@ -35,8 +34,13 @@
                 scope.peoplePickerParent = ('peoplePickerParent_' + attrs.id);
                 scope.peoplePickerId = ('peoplePicker_' + attrs.id);
                 scope.peoplePickerTextId = ('text_' + attrs.id);
-
-
+				
+				if(attrs.hasOwnProperty('ppWebUrl')){					
+					attrs.$observe('ppWebUrl', function(value) {						
+						scope.currentWebUrl = value ? value : _spPageContextInfo.webAbsoluteUrl
+					})
+				}
+				
                 var models = {};
                 models.pickerSchema = function (accountType, multipleValues, width) {
                     this.pickerSchema = {};

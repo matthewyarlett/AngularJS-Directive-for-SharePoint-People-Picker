@@ -5,7 +5,8 @@
     angular.module('app').controller(controllerId, ['$scope', '$timeout', appCtrlr]);
 
     function appCtrlr($scope, $timeout) {
-		var vm = this;	      
+		var vm = this;
+		vm.webUrl = null;
 		vm.data = {
 			su:null,
 			mu:null
@@ -22,7 +23,15 @@
 
 		function init() {
 			//Normally you would get this information from a REST call to Office 365 / SharePoint
-			getData();			
+			getData();	
+			//Update the weburl property
+			//This is to demo passing in a Web URL to the people picker via the pp-web-url attribute.
+			$timeout(function(){
+				vm.webUrl = this.webAppUrl;
+				if (!$scope.$root.$$phase) {
+					$scope.$apply();
+				}				 
+			 },500);
 		};
 		
 		function getData(){
