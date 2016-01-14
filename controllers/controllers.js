@@ -1,4 +1,4 @@
-﻿//App Controller
+//App Controller
 (function () {
     'use strict';
     var controllerId = 'appCtrlr';
@@ -27,7 +27,8 @@
 			//Update the weburl property
 			//This is to demo passing in a Web URL to the people picker via the pp-web-url attribute.
 			$timeout(function(){
-				vm.webUrl = this.webAppUrl;
+				var s = new service;
+				vm.webUrl = s.webAppUrl;
 				if (!$scope.$root.$$phase) {
 					$scope.$apply();
 				}				 
